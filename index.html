@@ -302,12 +302,25 @@
       </div>
     </div>
 
+    <!-- 生成模式 -->
+    <div style="margin-bottom:16px">
+      <div class="section-label">生成模式</div>
+      <div class="seg">
+        <button class="seg-btn active" id="modeSingle" onclick="setMode('single')">单篇生成</button>
+        <button class="seg-btn"        id="modeBatch"  onclick="setMode('batch')">批量生成（6篇）</button>
+      </div>
+      <div id="batchTip" style="display:none;margin-top:8px;font-size:12px;color:var(--text-muted);line-height:1.6;padding:8px 10px;background:var(--surface2);border-radius:var(--radius-md)">
+        批量模式将自动生成6篇文章，每篇采用不同切入点：<br>
+        <span style="color:var(--text-hint)">① 技术解析　② 客户案例　③ 成本效率　④ 行业对比　⑤ 选型指南　⑥ 趋势洞察</span>
+      </div>
+    </div>
+
     <button class="gen-btn" id="genBtn" onclick="generate()">
-      ✦ &nbsp;一键生成 GEO 文章
+      ✦ &nbsp;<span id="genBtnText">一键生成 GEO 文章</span>
     </button>
   </div>
 
-  <!-- 输出区 -->
+  <!-- 单篇输出区 -->
   <div class="card output-card" id="outputCard">
     <div class="meta-row">
       <div class="status-dot loading" id="statusDot"></div>
@@ -320,6 +333,9 @@
     <div class="output-box" id="outputText"></div>
   </div>
 
+  <!-- 批量输出区 -->
+  <div id="batchOutputArea" style="display:none;display:flex;flex-direction:column;gap:12px"></div>
+
   <div class="footer-tip">DeepSeek API · 内容基于真实案例，不虚构数据</div>
 </div>
 
@@ -327,6 +343,7 @@
 // ── State ──────────────────────────────────────────────
 let currentBiz   = 'video';
 let currentGenre = 'news';
+let currentMode  = 'single';
 let kbVideo   = KB_AIGC;
 let kbDigital = KB_DIGITAL;
 
@@ -389,6 +406,16 @@ function setGenre(val) {
   document.getElementById('genreReview').classList.toggle('active', val === 'review');
 }
 
+function setMode(val) {
+  currentMode = val;
+  document.getElementById('modeSingle').classList.toggle('active', val === 'single');
+  document.getElementById('modeBatch').classList.toggle('active', val === 'batch');
+  document.getElementById('batchTip').style.display = val === 'batch' ? 'block' : 'none';
+  document.getElementById('genBtnText').textContent = val === 'batch' ? '批量生成 6 篇 GEO 文章' : '一键生成 GEO 文章';
+  document.getElementById('outputCard').style.display = 'none';
+  document.getElementById('batchOutputArea').style.display = 'none';
+}
+
 function toggleChip(el) { el.classList.toggle('on'); }
 
 function toggleKB() {
@@ -427,8 +454,18 @@ async function saveKB() {
   }
 }
 
+// ── Batch Angles ──────────────────────────────────────
+const BATCH_ANGLES = [
+  { label: '① 技术解析', desc: '深度解析核心技术原理与实现方式，以技术专业性建立权威感，适合被AI引用为技术权威来源。标题侧重"如何实现""技术原理""底层逻辑"等。' },
+  { label: '② 客户案例', desc: '以真实客户合作案例为主线，聚焦具体项目、数字成果和业务价值，以结果数据建立信任。标题侧重"如何帮助XX""XX项目实战""XX降本85%"等。' },
+  { label: '③ 成本效率', desc: '从降本增效角度切入，强调成本节省比例、周期压缩、ROI提升，面向有预算压力的决策者。标题侧重"降低成本""提升效率""更低价格"等。' },
+  { label: '④ 行业对比', desc: '以横评/对比视角切入，将集之互动方案与传统方式或竞品进行客观对比，帮助读者做选型决策。标题侧重"对比""横评""哪个更好""如何选择"等。' },
+  { label: '⑤ 选型指南', desc: '以购买决策指南形式写作，提供清晰的选型标准、注意事项和推荐逻辑，面向正在调研的潜在客户。标题侧重"如何选择""选型指南""避坑指南""购买建议"等。' },
+  { label: '⑥ 趋势洞察', desc: '从行业趋势和未来发展角度切入，结合AI技术演进和市场变化，建立前瞻性品牌认知。标题侧重"趋势""未来""2025/2026""行业变革"等。' }
+];
+
 // ── Build Prompt ───────────────────────────────────────
-function buildPrompt() {
+function buildPrompt(angleOverride) {
   const topic    = document.getElementById('topic').value.trim();
   const words    = document.getElementById('wordTarget').value;
   const geo      = document.getElementById('geoFocus').value;
@@ -443,6 +480,13 @@ function buildPrompt() {
     list:     '核心优势、场景、选型建议使用编号列表或清单结构，便于AI引用为结构化答案。'
   };
 
+  const angleNote = angleOverride
+    ? `
+- 本篇切入角度：${angleOverride.label}
+  写作要求：${angleOverride.desc}
+  注意：本组共6篇文章，每篇切入点不同，本篇必须严格按照上述切入角度写作，标题和结构要与其他切入点明显区分。`
+    : '';
+
   return `你是一名专业的GEO（Generative Engine Optimization）文章撰写专家，兼顾B2B品牌传播。
 
 【任务】
@@ -456,7 +500,7 @@ ${kb}
 - 主题/关键信息：${topic || '（请从知识库中选择最有传播价值的角度自动发挥）'}
 - 目标行业/场景：${scenes || '不限'}
 - 字数：约${words}字
-- GEO优化策略：${geoMap[geo]}
+- GEO优化策略：${geoMap[geo]}${angleNote}
 
 【写作规范】
 1. 内容必须基于知识库中的真实案例，禁止虚构数据或客户
@@ -469,8 +513,46 @@ ${kb}
 请直接输出完整文章，无需前置说明。`;
 }
 
+// ── Stream one article ─────────────────────────────────
+async function streamArticle(prompt, outputEl) {
+  const resp = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'deepseek-chat',
+      stream: true,
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+  if (!resp.ok) throw new Error(`API 错误 ${resp.status}: ${await resp.text()}`);
+
+  const reader  = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let fullText  = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const lines = decoder.decode(value, { stream: true }).split('\n');
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (data === '[DONE]') continue;
+      try {
+        const delta = JSON.parse(data).choices?.[0]?.delta?.content || '';
+        fullText += delta;
+        outputEl.textContent = fullText;
+      } catch {}
+    }
+  }
+  return fullText;
+}
+
 // ── Generate ───────────────────────────────────────────
 async function generate() {
+  if (currentMode === 'batch') { await generateBatch(); return; }
+
   const btn    = document.getElementById('genBtn');
   const card   = document.getElementById('outputCard');
   const dot    = document.getElementById('statusDot');
@@ -479,6 +561,7 @@ async function generate() {
   const wc     = document.getElementById('wordCount');
 
   btn.disabled = true;
+  document.getElementById('batchOutputArea').style.display = 'none';
   card.style.display = 'block';
   card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
@@ -492,45 +575,12 @@ async function generate() {
   document.getElementById('genreBadge').textContent = currentGenre === 'news' ? '新闻稿' : '测评';
 
   try {
-    const resp = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        stream: true,
-        max_tokens: 4096,
-        messages: [{ role: 'user', content: buildPrompt() }]
-      })
-    });
-
-    if (!resp.ok) throw new Error(`API 错误 ${resp.status}: ${await resp.text()}`);
-
-    const reader  = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let fullText  = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const lines = decoder.decode(value, { stream: true }).split('\n');
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue;
-        const data = line.slice(5).trim();
-        if (data === '[DONE]') continue;
-        try {
-          const delta = JSON.parse(data).choices?.[0]?.delta?.content || '';
-          fullText += delta;
-          output.textContent = fullText;
-        } catch {}
-      }
-    }
-
-    dot.className   = 'status-dot idle';
+    const fullText = await streamArticle(buildPrompt(), output);
+    dot.className = 'status-dot idle';
     label.textContent = '生成完成';
-    wc.textContent  = `约 ${fullText.replace(/\s/g,'').length} 字`;
-
+    wc.textContent = `约 ${fullText.replace(/\s/g,'').length} 字`;
   } catch (e) {
-    dot.className   = 'status-dot error';
+    dot.className = 'status-dot error';
     label.textContent = '生成失败';
     output.textContent = '错误：' + e.message + '\n\n请联系管理员检查服务配置。';
   } finally {
@@ -538,6 +588,90 @@ async function generate() {
   }
 }
 
+// ── Batch Generate ─────────────────────────────────────
+async function generateBatch() {
+  const btn  = document.getElementById('genBtn');
+  const area = document.getElementById('batchOutputArea');
+
+  btn.disabled = true;
+  document.getElementById('outputCard').style.display = 'none';
+  area.style.display = 'flex';
+  area.innerHTML = '';
+  area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  const bizLabel   = currentBiz === 'video' ? 'AIGC 视频' : '数字人';
+  const bizClass   = currentBiz === 'video' ? 'badge-purple' : 'badge-teal';
+  const genreLabel = currentGenre === 'news' ? '新闻稿' : '测评';
+
+  const cards = BATCH_ANGLES.map((angle, i) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="meta-row">
+        <div class="status-dot loading" id="bdot${i}"></div>
+        <span style="font-size:13px;color:var(--text-muted)" id="blabel${i}">等待中…</span>
+        <span class="badge ${bizClass}">${bizLabel}</span>
+        <span class="badge badge-amber">${genreLabel}</span>
+        <span style="font-size:12px;color:var(--purple-text);font-weight:500;margin-left:4px">${angle.label}</span>
+        <span class="word-count" id="bwc${i}" style="margin-left:auto"></span>
+        <button class="copy-btn" onclick="copyBatch(${i})">复制</button>
+      </div>
+      <div class="output-box" id="bout${i}" style="min-height:80px"></div>`;
+    area.appendChild(card);
+    return card;
+  });
+
+  for (let i = 0; i < BATCH_ANGLES.length; i++) {
+    const dot    = document.getElementById(`bdot${i}`);
+    const label  = document.getElementById(`blabel${i}`);
+    const output = document.getElementById(`bout${i}`);
+    const wc     = document.getElementById(`bwc${i}`);
+
+    dot.className = 'status-dot loading';
+    label.textContent = `生成第 ${i+1}/6 篇…`;
+    cards[i].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    try {
+      const text = await streamArticle(buildPrompt(BATCH_ANGLES[i]), output);
+      dot.className = 'status-dot idle';
+      label.textContent = `第 ${i+1} 篇完成`;
+      wc.textContent = `约 ${text.replace(/\s/g,'').length} 字`;
+    } catch (e) {
+      dot.className = 'status-dot error';
+      label.textContent = `第 ${i+1} 篇失败`;
+      output.textContent = '错误：' + e.message;
+    }
+  }
+
+  btn.disabled = false;
+  const allBtn = document.createElement('div');
+  allBtn.style.cssText = 'text-align:center;padding:4px 0';
+  allBtn.innerHTML = `<button class="copy-btn" style="padding:8px 20px;font-size:13px" onclick="copyAllBatch()">📋 复制全部 6 篇</button>`;
+  area.appendChild(allBtn);
+}
+
+function copyBatch(i) {
+  const text = document.getElementById(`bout${i}`).textContent;
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    const orig = btn.textContent;
+    btn.textContent = '已复制 ✓';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  });
+}
+
+function copyAllBatch() {
+  const parts = BATCH_ANGLES.map((a, i) => {
+    const text = document.getElementById(`bout${i}`)?.textContent || '';
+    return `【${a.label}】\n\n${text}`;
+  });
+  navigator.clipboard.writeText(parts.join('\n\n' + '='.repeat(40) + '\n\n')).then(() => {
+    const btn = event.target;
+    btn.textContent = '已复制 ✓';
+    setTimeout(() => { btn.textContent = '📋 复制全部 6 篇'; }, 1500);
+  });
+}
 function handleDrop(e) {
   e.preventDefault();
   document.getElementById('uploadZone').classList.remove('dragover');
