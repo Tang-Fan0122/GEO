@@ -45,6 +45,12 @@ function writeKB(type, content) {
   fs.writeFileSync(kbPath(type), content, 'utf8');
 }
 
+function appendKB(type, extra) {
+  const current = readKB(type);
+  const sep = '\n\n---\n\n';
+  writeKB(type, current + sep + extra);
+}
+
 function serveStatic(res, filePath) {
   const ext = path.extname(filePath);
   const mime = MIME[ext] || 'text/plain; charset=utf-8';
@@ -57,11 +63,48 @@ function serveStatic(res, filePath) {
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => resolve(body));
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
+}
+
+// 解析 multipart/form-data，提取 type 字段和 file 内容
+function parseMultipart(buffer, boundary) {
+  const boundaryBuf = Buffer.from('--' + boundary);
+  const result = { type: null, filename: null, fileContent: null };
+  const parts = [];
+  let start = 0;
+
+  while (start < buffer.length) {
+    const idx = buffer.indexOf(boundaryBuf, start);
+    if (idx === -1) break;
+    const end = buffer.indexOf(boundaryBuf, idx + boundaryBuf.length);
+    if (end === -1) { parts.push(buffer.slice(idx + boundaryBuf.length + 2)); break; }
+    parts.push(buffer.slice(idx + boundaryBuf.length + 2, end - 2));
+    start = end;
+  }
+
+  for (const part of parts) {
+    const headerEnd = part.indexOf('\r\n\r\n');
+    if (headerEnd === -1) continue;
+    const header = part.slice(0, headerEnd).toString();
+    const body   = part.slice(headerEnd + 4);
+
+    const nameMatch = header.match(/name="([^"]+)"/);
+    const fileMatch = header.match(/filename="([^"]+)"/);
+    if (!nameMatch) continue;
+
+    if (nameMatch[1] === 'type' && !fileMatch) {
+      result.type = body.toString().trim();
+    }
+    if (nameMatch[1] === 'file' && fileMatch) {
+      result.filename    = fileMatch[1];
+      result.fileContent = body;
+    }
+  }
+  return result;
 }
 
 function proxyDeepSeek(req, res, body) {
@@ -70,6 +113,7 @@ function proxyDeepSeek(req, res, body) {
     res.end(JSON.stringify({ error: 'DEEPSEEK_API_KEY not configured' }));
     return;
   }
+  const bodyStr = typeof body === 'string' ? body : body.toString();
   const options = {
     hostname: 'api.deepseek.com',
     path: '/v1/chat/completions',
@@ -77,7 +121,7 @@ function proxyDeepSeek(req, res, body) {
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
-      'Content-Length': Buffer.byteLength(body),
+      'Content-Length': Buffer.byteLength(bodyStr),
     },
   };
   const proxyReq = https.request(options, proxyRes => {
@@ -93,7 +137,7 @@ function proxyDeepSeek(req, res, body) {
     res.writeHead(502, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: err.message }));
   });
-  proxyReq.write(body);
+  proxyReq.write(bodyStr);
   proxyReq.end();
 }
 
@@ -106,42 +150,78 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // POST /api/chat — DeepSeek 代理
+  // POST /api/chat
   if (req.method === 'POST' && url === '/api/chat') {
     const body = await readBody(req);
     proxyDeepSeek(req, res, body);
     return;
   }
 
-  // GET /api/kb/:type — 读知识库
+  // GET /api/kb/:type
   const kbGetMatch = url.match(/^\/api\/kb\/(aigc|digital)$/);
   if (req.method === 'GET' && kbGetMatch) {
-    const type = kbGetMatch[1];
     try {
-      const content = readKB(type);
+      const content = readKB(kbGetMatch[1]);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ content }));
     } catch (e) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: e.message }));
+      res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
     }
     return;
   }
 
-  // POST /api/kb/:type — 写知识库
+  // POST /api/kb/:type  (全量保存)
   const kbPostMatch = url.match(/^\/api\/kb\/(aigc|digital)$/);
   if (req.method === 'POST' && kbPostMatch) {
-    const type = kbPostMatch[1];
     try {
-      const body = await readBody(req);
+      const body = (await readBody(req)).toString();
       const { content } = JSON.parse(body);
       if (typeof content !== 'string') throw new Error('content must be string');
-      writeKB(type, content);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true }));
+      writeKB(kbPostMatch[1], content);
+      res.writeHead(200); res.end(JSON.stringify({ ok: true }));
     } catch (e) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: e.message }));
+      res.writeHead(400); res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // POST /api/kb/:type/upload  (文件追加)
+  const uploadMatch = url.match(/^\/api\/kb\/(aigc|digital)\/upload$/);
+  if (req.method === 'POST' && uploadMatch) {
+    try {
+      const type = uploadMatch[1];
+      const ct   = req.headers['content-type'] || '';
+      const bm   = ct.match(/boundary=(.+)$/);
+      if (!bm) throw new Error('Missing boundary');
+
+      const buf    = await readBody(req);
+      const parsed = parseMultipart(buf, bm[1].trim());
+      if (!parsed.fileContent) throw new Error('No file received');
+
+      const ext      = path.extname(parsed.filename || '').toLowerCase();
+      let   textContent = '';
+
+      if (ext === '.txt' || ext === '.md' || ext === '') {
+        textContent = parsed.fileContent.toString('utf8');
+      } else if (ext === '.docx') {
+        // 用 mammoth 提取 docx 文本（如已安装）
+        try {
+          const mammoth = require('mammoth');
+          const result  = await mammoth.extractRawText({ buffer: parsed.fileContent });
+          textContent   = result.value;
+        } catch {
+          throw new Error('请安装 mammoth：npm install mammoth，或上传 .txt/.md 格式');
+        }
+      } else {
+        throw new Error(`不支持的文件格式：${ext}，请上传 .txt .md .docx`);
+      }
+
+      const header = `\n## 上传文件：${parsed.filename}（${new Date().toLocaleString('zh-CN')}）\n\n`;
+      appendKB(type, header + textContent.trim());
+
+      res.writeHead(200); res.end(JSON.stringify({ ok: true, chars: textContent.length }));
+    } catch (e) {
+      res.writeHead(400); res.end(JSON.stringify({ error: e.message }));
     }
     return;
   }

@@ -164,6 +164,17 @@
     background: var(--teal-bg); color: var(--teal-text);
     cursor: pointer; font-family: inherit; font-weight: 500;
   }
+  .upload-zone {
+    border: 1px dashed var(--border-mid); border-radius: var(--radius-md);
+    padding: 14px 16px; text-align: center; cursor: pointer;
+    transition: all .15s; margin-top: 10px; background: var(--surface);
+  }
+  .upload-zone:hover { border-color: var(--text-muted); background: var(--surface2); }
+  .upload-zone.dragover { border-color: #1D9E75; background: var(--teal-bg); }
+  .upload-zone input[type=file] { display: none; }
+  .upload-log { margin-top: 8px; font-size: 12px; color: var(--text-muted); max-height: 80px; overflow-y: auto; line-height: 1.7; }
+  .upload-log .ok  { color: #1D9E75; }
+  .upload-log .err { color: #E24B4A; }
 
   .output-card { display: none; }
   .meta-row {
@@ -234,6 +245,20 @@
           <button class="kb-save-btn" onclick="saveKB()">保存知识库</button>
         </div>
       </div>
+    </div>
+
+    <!-- 知识库文件上传 -->
+    <div style="margin-bottom:16px">
+      <div class="section-label" id="uploadLabel">上传文件到知识库 <span style="font-weight:400;color:var(--text-hint)">(.txt .md .docx)</span></div>
+      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()"
+           ondragover="event.preventDefault();this.classList.add('dragover')"
+           ondragleave="this.classList.remove('dragover')"
+           ondrop="handleDrop(event)">
+        <input type="file" id="fileInput" accept=".txt,.md,.docx" multiple onchange="handleFiles(this.files)">
+        <div style="font-size:13px;color:var(--text-muted)">点击选择文件，或拖拽到此处</div>
+        <div style="font-size:12px;color:var(--text-hint);margin-top:4px">支持 .txt .md .docx，可多选，内容将追加到当前知识库</div>
+      </div>
+      <div class="upload-log" id="uploadLog"></div>
     </div>
 
     <!-- 体裁 -->
@@ -511,6 +536,42 @@ async function generate() {
   } finally {
     btn.disabled = false;
   }
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadZone').classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+}
+
+async function handleFiles(files) {
+  if (!files || files.length === 0) return;
+  const log = document.getElementById('uploadLog');
+  const type = currentBiz === 'video' ? 'aigc' : 'digital';
+
+  for (const file of files) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['txt','md','docx'].includes(ext)) {
+      log.innerHTML += `<div class="err">✗ ${file.name}：不支持的格式</div>`;
+      continue;
+    }
+    log.innerHTML += `<div>⟳ 上传 ${file.name}…</div>`;
+    const form = new FormData();
+    form.append('type', type);
+    form.append('file', file);
+    try {
+      const res = await fetch(`/api/kb/${type}/upload`, { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.status);
+      log.innerHTML += `<div class="ok">✓ ${file.name} 已追加（${data.chars} 字符）</div>`;
+      await fetchKB(type);
+      loadKBText();
+    } catch (e) {
+      log.innerHTML += `<div class="err">✗ ${file.name}：${e.message}</div>`;
+    }
+  }
+  log.scrollTop = log.scrollHeight;
+  document.getElementById('fileInput').value = '';
 }
 
 function copyOutput() {

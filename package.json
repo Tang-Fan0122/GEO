@@ -4,5 +4,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
+  },
+  "dependencies": {
+    "mammoth": "^1.8.0"
   }
 }
