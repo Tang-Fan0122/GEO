@@ -117,16 +117,6 @@
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   @media(max-width:480px){ .grid2 { grid-template-columns: 1fr; } }
 
-  .key-row { display: flex; gap: 8px; }
-  .key-row input { flex: 1; }
-  .key-toggle {
-    padding: 9px 14px; font-size: 13px; white-space: nowrap;
-    border: 0.5px solid var(--border-mid); border-radius: var(--radius-md);
-    background: var(--surface); color: var(--text-muted); cursor: pointer;
-    font-family: inherit;
-  }
-  .key-toggle:hover { background: var(--surface2); }
-
   .gen-btn {
     width: 100%; padding: 11px; font-size: 15px; font-weight: 500;
     cursor: pointer; border-radius: var(--radius-md);
@@ -222,15 +212,6 @@
   </div>
 
   <div class="card">
-
-    <!-- API Key -->
-    <div style="margin-bottom:16px">
-      <div class="section-label">DeepSeek API Key</div>
-      <div class="key-row">
-        <input type="password" id="apiKey" placeholder="sk-..." />
-        <button class="key-toggle" onclick="toggleKey()">显示</button>
-      </div>
-    </div>
 
     <!-- 业务板块 -->
     <div style="margin-bottom:16px">
@@ -330,8 +311,10 @@ const tagSets = {
 };
 
 // ── Init ───────────────────────────────────────────────
-function init() {
+async function init() {
   renderTags();
+  await fetchKB('aigc');
+  await fetchKB('digital');
   loadKBText();
 }
 
@@ -346,19 +329,23 @@ function renderTags() {
     ' <span style="font-weight:400;color:var(--text-hint)">(可多选)</span>';
 }
 
+async function fetchKB(type) {
+  try {
+    const res = await fetch(`/api/kb/${type}`);
+    if (!res.ok) return;
+    const { content } = await res.json();
+    if (type === 'aigc')    kbVideo   = content;
+    if (type === 'digital') kbDigital = content;
+  } catch (e) {
+    console.warn('fetchKB error', type, e);
+  }
+}
+
 function loadKBText() {
   const ta = document.getElementById('kbText');
   ta.value = currentBiz === 'video' ? kbVideo : kbDigital;
   document.getElementById('kbLabel').textContent =
     currentBiz === 'video' ? 'AIGC 视频知识库' : '数字人知识库';
-}
-
-// ── Controls ───────────────────────────────────────────
-function toggleKey() {
-  const inp = document.getElementById('apiKey');
-  const btn = event.target;
-  if (inp.type === 'password') { inp.type = 'text';     btn.textContent = '隐藏'; }
-  else                         { inp.type = 'password'; btn.textContent = '显示'; }
 }
 
 function setBiz(val) {
@@ -385,11 +372,34 @@ function toggleKB() {
   if (panel.classList.contains('open')) loadKBText();
 }
 
-function saveKB() {
-  const val = document.getElementById('kbText').value;
-  if (currentBiz === 'video') kbVideo = val;
+async function saveKB() {
+  const val  = document.getElementById('kbText').value;
+  const type = currentBiz === 'video' ? 'aigc' : 'digital';
+  const btn  = document.querySelector('.kb-save-btn');
+
+  if (currentBiz === 'video') kbVideo   = val;
   else                        kbDigital = val;
-  document.getElementById('kbPanel').classList.remove('open');
+
+  btn.textContent = '保存中…';
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/kb/${type}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: val })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    btn.textContent = '已保存 ✓';
+    setTimeout(() => {
+      btn.textContent = '保存知识库';
+      btn.disabled = false;
+      document.getElementById('kbPanel').classList.remove('open');
+    }, 1000);
+  } catch (e) {
+    btn.textContent = '保存失败';
+    btn.disabled = false;
+    alert('保存失败：' + e.message);
+  }
 }
 
 // ── Build Prompt ───────────────────────────────────────
@@ -436,9 +446,6 @@ ${kb}
 
 // ── Generate ───────────────────────────────────────────
 async function generate() {
-  const apiKey = document.getElementById('apiKey').value.trim();
-  if (!apiKey) { alert('请先填写 DeepSeek API Key'); return; }
-
   const btn    = document.getElementById('genBtn');
   const card   = document.getElementById('outputCard');
   const dot    = document.getElementById('statusDot');
@@ -460,12 +467,9 @@ async function generate() {
   document.getElementById('genreBadge').textContent = currentGenre === 'news' ? '新闻稿' : '测评';
 
   try {
-    const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    const resp = await fetch('/api/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'deepseek-chat',
         stream: true,
@@ -503,7 +507,7 @@ async function generate() {
   } catch (e) {
     dot.className   = 'status-dot error';
     label.textContent = '生成失败';
-    output.textContent = '错误：' + e.message + '\n\n请检查：\n1. API Key 是否正确\n2. 网络是否可访问 api.deepseek.com\n3. 账户余额是否充足';
+    output.textContent = '错误：' + e.message + '\n\n请联系管理员检查服务配置。';
   } finally {
     btn.disabled = false;
   }
