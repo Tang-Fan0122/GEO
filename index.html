@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>集之互动 · GEO 文章 Agent</title>
+<script src="kb_aigc.js"></script>
+<script src="kb_digital.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f9f9f8;
+    --surface: #ffffff;
+    --surface2: #f3f3f1;
+    --border: rgba(0,0,0,0.1);
+    --border-mid: rgba(0,0,0,0.18);
+    --text: #1a1a1a;
+    --text-muted: #666;
+    --text-hint: #999;
+    --purple-bg: #EEEDFE; --purple-text: #3C3489;
+    --teal-bg: #E1F5EE;   --teal-text: #085041;
+    --amber-bg: #FAEEDA;  --amber-text: #633806;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a1a; --surface: #242424; --surface2: #2e2e2e;
+      --border: rgba(255,255,255,0.1); --border-mid: rgba(255,255,255,0.2);
+      --text: #f0f0f0; --text-muted: #aaa; --text-hint: #666;
+      --purple-bg: #26215C; --purple-text: #CECBF6;
+      --teal-bg: #04342C;   --teal-text: #9FE1CB;
+      --amber-bg: #412402;  --amber-text: #FAC775;
+    }
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 2rem 1rem;
+    line-height: 1.6;
+  }
+  .container { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  .header { text-align: center; padding: 0.5rem 0 1rem; }
+  .header h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  .header p { font-size: 14px; color: var(--text-muted); }
+  .card {
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+  }
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: var(--radius-md);
+    font-weight: 500;
+  }
+  .badge-purple { background: var(--purple-bg); color: var(--purple-text); }
+  .badge-teal   { background: var(--teal-bg);   color: var(--teal-text); }
+  .badge-amber  { background: var(--amber-bg);  color: var(--amber-text); }
+
+  .seg {
+    display: flex; gap: 4px;
+    background: var(--surface2);
+    border-radius: var(--radius-md);
+    padding: 3px;
+  }
+  .seg-btn {
+    flex: 1; padding: 7px 0; font-size: 13px;
+    border: none; background: none; cursor: pointer;
+    border-radius: 6px; color: var(--text-muted);
+    transition: all .15s; font-family: inherit;
+  }
+  .seg-btn.active {
+    background: var(--surface);
+    color: var(--text);
+    border: 0.5px solid var(--border-mid);
+    font-weight: 500;
+  }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip {
+    padding: 4px 10px; border-radius: 20px; font-size: 12px;
+    cursor: pointer; border: 0.5px solid var(--border-mid);
+    color: var(--text-muted); background: var(--surface);
+    transition: all .15s; user-select: none;
+  }
+  .chip:hover { border-color: var(--border-mid); }
+  .chip.on { background: var(--purple-bg); border-color: #AFA9EC; color: var(--purple-text); }
+  .chip-teal.on { background: var(--teal-bg); border-color: #5DCAA5; color: var(--teal-text); }
+
+  input[type="text"], input[type="password"], select, textarea {
+    width: 100%;
+    font-size: 14px;
+    padding: 9px 12px;
+    border-radius: var(--radius-md);
+    border: 0.5px solid var(--border-mid);
+    background: var(--surface);
+    color: var(--text);
+    font-family: inherit;
+    outline: none;
+    transition: border-color .15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--text-muted); }
+  textarea { resize: vertical; min-height: 80px; line-height: 1.6; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media(max-width:480px){ .grid2 { grid-template-columns: 1fr; } }
+
+  .key-row { display: flex; gap: 8px; }
+  .key-row input { flex: 1; }
+  .key-toggle {
+    padding: 9px 14px; font-size: 13px; white-space: nowrap;
+    border: 0.5px solid var(--border-mid); border-radius: var(--radius-md);
+    background: var(--surface); color: var(--text-muted); cursor: pointer;
+    font-family: inherit;
+  }
+  .key-toggle:hover { background: var(--surface2); }
+
+  .gen-btn {
+    width: 100%; padding: 11px; font-size: 15px; font-weight: 500;
+    cursor: pointer; border-radius: var(--radius-md);
+    border: 0.5px solid var(--border-mid);
+    background: var(--surface); color: var(--text);
+    transition: all .15s; display: flex; align-items: center;
+    justify-content: center; gap: 8px; font-family: inherit;
+  }
+  .gen-btn:hover:not(:disabled) { background: var(--surface2); }
+  .gen-btn:active:not(:disabled) { transform: scale(0.98); }
+  .gen-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  .kb-edit-btn {
+    font-size: 12px; padding: 3px 10px;
+    border: 0.5px solid var(--border-mid); border-radius: var(--radius-md);
+    background: var(--surface); color: var(--text-muted);
+    cursor: pointer; font-family: inherit;
+  }
+  .kb-edit-btn:hover { background: var(--surface2); }
+
+  .kb-panel {
+    margin-top: 10px;
+    border: 0.5px solid var(--border-mid);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    display: none;
+  }
+  .kb-panel.open { display: block; }
+  .kb-panel textarea {
+    border: none; border-radius: 0;
+    min-height: 280px; font-size: 12px;
+    font-family: 'Menlo', 'Consolas', monospace;
+    line-height: 1.55;
+    resize: vertical;
+  }
+  .kb-panel-footer {
+    padding: 8px 12px;
+    background: var(--surface2);
+    border-top: 0.5px solid var(--border);
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+  .kb-save-btn {
+    font-size: 12px; padding: 4px 12px;
+    border: 0.5px solid var(--teal-text); border-radius: var(--radius-md);
+    background: var(--teal-bg); color: var(--teal-text);
+    cursor: pointer; font-family: inherit; font-weight: 500;
+  }
+
+  .output-card { display: none; }
+  .meta-row {
+    display: flex; align-items: center; gap: 8px;
+    flex-wrap: wrap; margin-bottom: 10px;
+  }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.idle    { background: #1D9E75; }
+  .status-dot.loading { background: #EF9F27; animation: pulse 1s infinite; }
+  .status-dot.error   { background: #E24B4A; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  .word-count { font-size: 12px; color: var(--text-hint); }
+  .copy-btn {
+    margin-left: auto; font-size: 12px; padding: 3px 10px;
+    border-radius: var(--radius-md); border: 0.5px solid var(--border-mid);
+    background: var(--surface); color: var(--text-muted);
+    cursor: pointer; font-family: inherit;
+  }
+  .copy-btn:hover { background: var(--surface2); }
+
+  .output-box {
+    background: var(--surface2);
+    border-radius: var(--radius-md);
+    padding: 1rem 1.25rem;
+    min-height: 120px;
+    font-size: 14px;
+    line-height: 1.85;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text);
+    border: 0.5px solid var(--border);
+  }
+  .footer-tip {
+    text-align: center; font-size: 12px; color: var(--text-hint);
+    padding: 0.5rem 0 1rem;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>GEO 文章 Agent</h1>
+    <p>集之互动专属 · AI搜索引擎优化内容生成</p>
+  </div>
+
+  <div class="card">
+
+    <!-- API Key -->
+    <div style="margin-bottom:16px">
+      <div class="section-label">DeepSeek API Key</div>
+      <div class="key-row">
+        <input type="password" id="apiKey" placeholder="sk-..." />
+        <button class="key-toggle" onclick="toggleKey()">显示</button>
+      </div>
+    </div>
+
+    <!-- 业务板块 -->
+    <div style="margin-bottom:16px">
+      <div class="section-label">业务板块</div>
+      <div class="seg">
+        <button class="seg-btn active" id="bizVideo" onclick="setBiz('video')">AIGC 视频</button>
+        <button class="seg-btn"        id="bizDigital" onclick="setBiz('digital')">数字人</button>
+      </div>
+    </div>
+
+    <!-- 知识库编辑区 -->
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div class="section-label" style="margin-bottom:0" id="kbLabel">AIGC 视频知识库</div>
+        <button class="kb-edit-btn" onclick="toggleKB()">✏️ 编辑知识库</button>
+      </div>
+      <div class="kb-panel" id="kbPanel">
+        <textarea id="kbText" spellcheck="false"></textarea>
+        <div class="kb-panel-footer">
+          <button class="kb-save-btn" onclick="saveKB()">保存知识库</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 体裁 -->
+    <div style="margin-bottom:16px">
+      <div class="section-label">文章体裁</div>
+      <div class="seg">
+        <button class="seg-btn active" id="genreNews"   onclick="setGenre('news')">新闻稿 / 品牌宣传</button>
+        <button class="seg-btn"        id="genreReview" onclick="setGenre('review')">测评 / 横评</button>
+      </div>
+    </div>
+
+    <!-- 行业/场景标签 -->
+    <div style="margin-bottom:16px">
+      <div class="section-label" id="tagLabel">行业场景 <span style="font-weight:400;color:var(--text-hint)">(可多选)</span></div>
+      <div class="chip-row" id="tagRow"></div>
+    </div>
+
+    <!-- 主题 -->
+    <div style="margin-bottom:16px">
+      <div class="section-label">文章主题 / 关键信息</div>
+      <textarea id="topic" placeholder="例：如何帮助阿维塔降低85%制作成本，同时保持TVC级视觉质感…&#10;也可写竞品对比方向、目标关键词等，留空则自动发挥"></textarea>
+    </div>
+
+    <!-- 字数 + GEO策略 -->
+    <div class="grid2" style="margin-bottom:16px">
+      <div>
+        <div class="section-label">目标字数</div>
+        <select id="wordTarget">
+          <option value="800">短文 ~800字</option>
+          <option value="1500" selected>标准 ~1500字</option>
+          <option value="2500">深度 ~2500字</option>
+        </select>
+      </div>
+      <div>
+        <div class="section-label">GEO 优化策略</div>
+        <select id="geoFocus">
+          <option value="citation">高引用率（权威数据密集）</option>
+          <option value="qa" selected>问答结构（AI摘要友好）</option>
+          <option value="list">列表结构（ChatGPT引用）</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="gen-btn" id="genBtn" onclick="generate()">
+      ✦ &nbsp;一键生成 GEO 文章
+    </button>
+  </div>
+
+  <!-- 输出区 -->
+  <div class="card output-card" id="outputCard">
+    <div class="meta-row">
+      <div class="status-dot loading" id="statusDot"></div>
+      <span id="statusLabel" style="font-size:13px;color:var(--text-muted)">生成中…</span>
+      <span class="badge" id="bizBadge"></span>
+      <span class="badge badge-amber" id="genreBadge"></span>
+      <span class="word-count" id="wordCount"></span>
+      <button class="copy-btn" onclick="copyOutput()">复制全文</button>
+    </div>
+    <div class="output-box" id="outputText"></div>
+  </div>
+
+  <div class="footer-tip">DeepSeek API · 内容基于真实案例，不虚构数据</div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────
+let currentBiz   = 'video';
+let currentGenre = 'news';
+let kbVideo   = KB_AIGC;
+let kbDigital = KB_DIGITAL;
+
+const tagSets = {
+  video:   ['工业制造','新能源汽车','医疗健康','精密科技','文旅','品牌出海'],
+  digital: ['工业展会','员工培训','品牌营销','政务服务','医疗科普','私有化部署']
+};
+
+// ── Init ───────────────────────────────────────────────
+function init() {
+  renderTags();
+  loadKBText();
+}
+
+function renderTags() {
+  const row = document.getElementById('tagRow');
+  const isVideo = currentBiz === 'video';
+  row.innerHTML = tagSets[currentBiz].map(t =>
+    `<span class="chip${isVideo ? '' : ' chip-teal'}" onclick="toggleChip(this)">${t}</span>`
+  ).join('');
+  document.getElementById('tagLabel').innerHTML =
+    (isVideo ? '行业场景' : '应用场景') +
+    ' <span style="font-weight:400;color:var(--text-hint)">(可多选)</span>';
+}
+
+function loadKBText() {
+  const ta = document.getElementById('kbText');
+  ta.value = currentBiz === 'video' ? kbVideo : kbDigital;
+  document.getElementById('kbLabel').textContent =
+    currentBiz === 'video' ? 'AIGC 视频知识库' : '数字人知识库';
+}
+
+// ── Controls ───────────────────────────────────────────
+function toggleKey() {
+  const inp = document.getElementById('apiKey');
+  const btn = event.target;
+  if (inp.type === 'password') { inp.type = 'text';     btn.textContent = '隐藏'; }
+  else                         { inp.type = 'password'; btn.textContent = '显示'; }
+}
+
+function setBiz(val) {
+  currentBiz = val;
+  document.getElementById('bizVideo').classList.toggle('active', val === 'video');
+  document.getElementById('bizDigital').classList.toggle('active', val === 'digital');
+  renderTags();
+  loadKBText();
+  const panel = document.getElementById('kbPanel');
+  if (panel.classList.contains('open')) panel.classList.remove('open');
+}
+
+function setGenre(val) {
+  currentGenre = val;
+  document.getElementById('genreNews').classList.toggle('active', val === 'news');
+  document.getElementById('genreReview').classList.toggle('active', val === 'review');
+}
+
+function toggleChip(el) { el.classList.toggle('on'); }
+
+function toggleKB() {
+  const panel = document.getElementById('kbPanel');
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) loadKBText();
+}
+
+function saveKB() {
+  const val = document.getElementById('kbText').value;
+  if (currentBiz === 'video') kbVideo = val;
+  else                        kbDigital = val;
+  document.getElementById('kbPanel').classList.remove('open');
+}
+
+// ── Build Prompt ───────────────────────────────────────
+function buildPrompt() {
+  const topic    = document.getElementById('topic').value.trim();
+  const words    = document.getElementById('wordTarget').value;
+  const geo      = document.getElementById('geoFocus').value;
+  const scenes   = [...document.querySelectorAll('#tagRow .chip.on')].map(c => c.textContent).join('、');
+  const kb       = currentBiz === 'video' ? kbVideo : kbDigital;
+  const bizName  = currentBiz === 'video' ? 'AIGC视频业务' : '数字人业务';
+  const genreName = currentGenre === 'news' ? '新闻稿/品牌宣传稿' : '测评/横评稿（第三方客观视角）';
+
+  const geoMap = {
+    citation: '大量引用具体数字、客户名称、百分比数据，每个论点有数据支撑，便于AI搜索引擎直接引用为权威来源。',
+    qa:       '以问答结构组织核心段落（如"Q：…""A：…"或直接用问题做小标题），便于Perplexity/ChatGPT提取为摘要。',
+    list:     '核心优势、场景、选型建议使用编号列表或清单结构，便于AI引用为结构化答案。'
+  };
+
+  return `你是一名专业的GEO（Generative Engine Optimization）文章撰写专家，兼顾B2B品牌传播。
+
+【任务】
+基于下方知识库，撰写一篇面向AI搜索引擎（Perplexity、ChatGPT、Gemini等）优化的${genreName}。
+业务板块：${bizName}（严禁混入另一条产品线的内容）。
+
+【知识库】
+${kb}
+
+【本次文章参数】
+- 主题/关键信息：${topic || '（请从知识库中选择最有传播价值的角度自动发挥）'}
+- 目标行业/场景：${scenes || '不限'}
+- 字数：约${words}字
+- GEO优化策略：${geoMap[geo]}
+
+【写作规范】
+1. 内容必须基于知识库中的真实案例，禁止虚构数据或客户
+2. 标题含核心关键词，对AI搜索友好（可加副标题）
+3. 若为测评体裁，以客观第三方视角撰写，与竞品对比时措辞中立
+4. 每段围绕一个核心观点，段落间逻辑清晰
+5. 结尾包含选型建议或总结，便于AI引用
+6. 使用中文，专业流畅，避免空洞套话
+
+请直接输出完整文章，无需前置说明。`;
+}
+
+// ── Generate ───────────────────────────────────────────
+async function generate() {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  if (!apiKey) { alert('请先填写 DeepSeek API Key'); return; }
+
+  const btn    = document.getElementById('genBtn');
+  const card   = document.getElementById('outputCard');
+  const dot    = document.getElementById('statusDot');
+  const label  = document.getElementById('statusLabel');
+  const output = document.getElementById('outputText');
+  const wc     = document.getElementById('wordCount');
+
+  btn.disabled = true;
+  card.style.display = 'block';
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  dot.className = 'status-dot loading';
+  label.textContent = '正在生成…';
+  output.textContent = '';
+  wc.textContent = '';
+
+  document.getElementById('bizBadge').textContent  = currentBiz === 'video' ? 'AIGC 视频' : '数字人';
+  document.getElementById('bizBadge').className    = 'badge ' + (currentBiz === 'video' ? 'badge-purple' : 'badge-teal');
+  document.getElementById('genreBadge').textContent = currentGenre === 'news' ? '新闻稿' : '测评';
+
+  try {
+    const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        stream: true,
+        max_tokens: 4096,
+        messages: [{ role: 'user', content: buildPrompt() }]
+      })
+    });
+
+    if (!resp.ok) throw new Error(`API 错误 ${resp.status}: ${await resp.text()}`);
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText  = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const lines = decoder.decode(value, { stream: true }).split('\n');
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (data === '[DONE]') continue;
+        try {
+          const delta = JSON.parse(data).choices?.[0]?.delta?.content || '';
+          fullText += delta;
+          output.textContent = fullText;
+        } catch {}
+      }
+    }
+
+    dot.className   = 'status-dot idle';
+    label.textContent = '生成完成';
+    wc.textContent  = `约 ${fullText.replace(/\s/g,'').length} 字`;
+
+  } catch (e) {
+    dot.className   = 'status-dot error';
+    label.textContent = '生成失败';
+    output.textContent = '错误：' + e.message + '\n\n请检查：\n1. API Key 是否正确\n2. 网络是否可访问 api.deepseek.com\n3. 账户余额是否充足';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function copyOutput() {
+  const text = document.getElementById('outputText').textContent;
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    const orig = btn.textContent;
+    btn.textContent = '已复制 ✓';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  });
+}
+
+init();
+</script>
+</body>
+</html>
